@@ -1,0 +1,10 @@
+pandas>=3.0
+numpy>=2.5
+scikit-learn>=1.9
+nltk>=3.10
+matplotlib>=3.11
+seaborn>=0.13
+wordcloud>=1.9
+sentence-transformers>=6.3
+huggingface_hub>=2.4
+jupyterlab>=4.6

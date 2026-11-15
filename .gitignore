@@ -1,0 +1,10 @@
+# Embeddings gerados pelos notebooks (grandes; são recriados ao rodar 03_modelagem.ipynb)
+data/embeddings/
+
+# Arquivos locais
+descricao/
+.idea/
+.ipynb_checkpoints/
+__pycache__/
+.venv/
+venv/
