@@ -1,6 +1,9 @@
 # Embeddings gerados pelos notebooks (grandes; são recriados ao rodar 03_modelagem.ipynb)
 data/embeddings/
 
+# Resultados das buscas de hiperparâmetros (cache; o rf_tfidf passa de 100 MB e é recriado por 03_modelagem.ipynb)
+data/buscas/
+
 # Arquivos locais
 descricao/
 .idea/
