@@ -4,7 +4,11 @@ Como um banco que recebe milhares de mensagens de clientes por dia pode encaminh
 
 Neste projeto pessoal, construo um classificador de intenções em Python com Machine Learning e o comparo com classificações feitas por LLMs, usando o dataset **Banking77 em português** para responder a essas perguntas. São cerca de 13 mil mensagens de clientes em **77 categorias de atendimento**, como `chegada_do_cartão`, `alterar_pin` e `cancelar_transferência`.
 
-> **Status:** em andamento.
+> **Status:** em andamento. A modelagem clássica está concluída; a próxima etapa é a classificação com LLMs.
+
+## Resultado até agora
+
+O melhor modelo clássico é o **SVM (kernel RBF) sobre os embeddings do `multilingual-e5-large`**, com **0,9307 de F1-macro** e 0,9286 de acurácia no teste, **+6,53 pp** de F1-macro sobre o baseline (Regressão Logística sem ajuste sobre TF-IDF).
 
 ## A ideia
 
@@ -13,7 +17,7 @@ O projeto compara duas formas de resolver o mesmo problema:
 | | Machine Learning clássico | LLMs via API |
 |---|---|---|
 | **Como funciona** | um modelo treinado com as mensagens rotuladas | a LLM recebe a mensagem e a lista de categorias num prompt |
-| **Variações testadas** | Regressão Logística e SVM Linear, sobre TF-IDF e sobre embeddings de sentenças | prompts zero-shot (só as categorias) e few-shot (com exemplos) |
+| **Variações testadas** | Regressão Logística, SVM, Random Forest e XGBoost, sobre TF-IDF e sobre embeddings de sentenças | prompts zero-shot (só as categorias) e few-shot (com exemplos) |
 | **Precisa de dados rotulados?** | sim, para o treino | não (zero-shot) ou poucos exemplos (few-shot) |
 | **Custo** | treino uma vez; prever é praticamente grátis | paga por mensagem classificada |
 
@@ -31,8 +35,9 @@ No fim, os resultados são traduzidos para a linguagem de negócio, apontando a 
 
 - [x] **Pré-processamento** dos textos ([`01_processamento.ipynb`](notebooks/01_processamento.ipynb))
 - [x] **Análise exploratória** com visualização de dados e técnicas de PLN: tokenização, stopwords e TF-IDF com n-gramas ([`02_analise_exploratoria.ipynb`](notebooks/02_analise_exploratoria.ipynb))
-- [x] **Baseline e Regressão Logística sobre TF-IDF** ([`03_modelagem.ipynb`](notebooks/03_modelagem.ipynb))
-- [ ] **Regressão Logística e SVM Linear sobre embeddings** de sentenças (os embeddings já estão gerados)
+- [x] **Modelagem com TF-IDF**: baseline, Regressão Logística, SVM, Random Forest e XGBoost ([`03_modelagem.ipynb`](notebooks/03_modelagem.ipynb))
+- [x] **Modelagem com embeddings** de sentenças: Regressão Logística e SVM sobre três encoders ([`03_modelagem.ipynb`](notebooks/03_modelagem.ipynb))
+- [ ] **Análise de erros** do melhor modelo (desempenho por classe e pares de categorias confundidos)
 - [ ] **Classificação com LLMs via API**, com prompts zero-shot e few-shot
 - [ ] **Comparação final** por F1-macro, acurácia, custo, tempo de resposta e curva de aprendizado
 - [ ] **Recomendação de negócio**
@@ -64,29 +69,45 @@ Como o dataset foi traduzido automaticamente, boa parte do trabalho foi encontra
 
 - O desbalanceamento entre categorias é moderado. Por isso, a divisão entre treino e teste é estratificada e a métrica principal é o **F1-macro**, que dá o mesmo peso a todas as categorias.
 - As negações (`não`, `nem`, `sem`) foram mantidas fora da lista de stopwords: elas mudam o sentido das frases e fazem parte do nome de vários rótulos, como `cartão_não_funcionando`.
-- Categorias do mesmo tema compartilham as palavras mais frequentes; bigramas e trigramas ajudam a separar parte delas.
+- Categorias do mesmo tema compartilham as palavras mais frequentes; a hipótese era que bigramas e trigramas ajudariam a separar parte delas (a modelagem mostrou que não).
 
-### Modelagem com TF-IDF
+### Modelagem
 
-Divisão estratificada 80/20 (10.024 mensagens de treino e 2.506 de teste). Os hiperparâmetros são escolhidos com `GridSearchCV` e validação cruzada estratificada de 5 folds, feitos só no treino; o teste é usado uma única vez, no fim.
+Divisão estratificada 80/20 (10.024 mensagens de treino e 2.506 de teste). Os hiperparâmetros são escolhidos só no treino, com validação cruzada estratificada de 5 folds (os mesmos para todos os modelos) e F1-macro como critério: `GridSearchCV` na maioria dos modelos e `Optuna` no XGBoost. O teste é usado uma única vez, no fim, e o melhor modelo é escolhido pelo F1-macro da validação cruzada, não pelo do teste.
 
-| Modelo | Representação | Acurácia | F1-macro | Ganho sobre o baseline |
-|---|---|---|---|---|
-| Regressão Logística ajustada | TF-IDF com stopwords | 0,8899 | **0,8892** | +2,37 pp |
-| Regressão Logística ajustada | TF-IDF sem stopwords | 0,8783 | 0,8761 | +1,07 pp |
-| Regressão Logística (baseline, sem ajuste) | TF-IDF com stopwords | 0,8671 | 0,8654 | — |
+Representações comparadas:
 
-**Remover stopwords piorou o modelo** em cerca de 1,3 pp, tanto na validação cruzada quanto no teste. Palavras como "por", "que" e "minha" ajudam a separar intenções parecidas, como `por_que_verificar_identidade` e `verificar_minha_identidade`.
-
-### Embeddings de sentenças
-
-Os próximos modelos clássicos usam embeddings, que representam o significado da frase inteira, e não só as palavras que ela contém:
-
-| Modelo de embedding | Tipo | O que a comparação mostra |
+| Representação | Tipo | O que a comparação mostra |
 |---|---|---|
-| [Serafim 335m](https://huggingface.co/PORTULAN/serafim-335m-portuguese-pt-sentence-encoder) | português | modelo de português vs. multilíngue |
-| [multilingual-e5-base](https://huggingface.co/intfloat/multilingual-e5-base) | multilíngue | referência de tamanho para o e5-large |
-| [multilingual-e5-large](https://huggingface.co/intfloat/multilingual-e5-large) | multilíngue | efeito do tamanho do modelo |
+| TF-IDF | esparsa, contagem de palavras | efeito do ajuste do vetorizador (n-gramas, stopwords, `min_df`, `sublinear_tf`) |
+| [Serafim 335m](https://huggingface.co/PORTULAN/serafim-335m-portuguese-pt-sentence-encoder) | embedding, português | modelo de português vs. multilíngue |
+| [multilingual-e5-base](https://huggingface.co/intfloat/multilingual-e5-base) | embedding, multilíngue | referência de tamanho para o e5-large |
+| [multilingual-e5-large](https://huggingface.co/intfloat/multilingual-e5-large) | embedding, multilíngue | efeito do tamanho do modelo |
+
+#### Resultados no teste
+
+| Modelo | Representação | F1-macro (CV) | Acurácia | F1-macro | Ganho sobre o baseline |
+|---|---|---|---|---|---|
+| **SVM ajustado (RBF)** | **e5-large** | **0,9286** | **0,9286** | **0,9307** | **+6,53 pp** |
+| Regressão Logística ajustada | e5-large | 0,9237 | 0,9238 | 0,9264 | +6,10 pp |
+| SVM ajustado (polinomial) | e5-base | 0,9208 | 0,9226 | 0,9245 | +5,91 pp |
+| Regressão Logística ajustada | e5-base | 0,9167 | 0,9210 | 0,9231 | +5,77 pp |
+| SVM ajustado (RBF) | Serafim 335m | 0,9092 | 0,9170 | 0,9187 | +5,32 pp |
+| Regressão Logística ajustada | Serafim 335m | 0,9034 | 0,9110 | 0,9119 | +4,64 pp |
+| SVM ajustado (polinomial) | TF-IDF | 0,8830 | 0,8923 | 0,8922 | +2,67 pp |
+| Regressão Logística ajustada | TF-IDF | 0,8756 | 0,8915 | 0,8906 | +2,52 pp |
+| Random Forest ajustado | TF-IDF | 0,8487 | 0,8579 | 0,8558 | −0,97 pp |
+| Regressão Logística (baseline, sem ajuste) | TF-IDF | 0,8441 | 0,8671 | 0,8654 | — |
+| XGBoost ajustado (Optuna) | TF-IDF | 0,8228 | 0,8312 | 0,8313 | −3,42 pp |
+
+#### Principais conclusões
+
+- **A representação pesou mais que o classificador.** Os 6 modelos com embeddings ficaram acima de todos os modelos com TF-IDF: o pior deles (Regressão Logística + Serafim, 0,9119) supera o melhor com TF-IDF (SVM, 0,8922). Entre os encoders, o e5-large foi o melhor nos dois classificadores, e o modelo multilíngue superou o treinado só em português.
+- **O ajuste de hiperparâmetros foi indispensável, principalmente nos embeddings.** O `C` foi o hiperparâmetro de maior efeito em todos os modelos. Sem ajuste, a Regressão Logística com os embeddings do e5 ficava *abaixo* do baseline com TF-IDF (−4,85 pp no e5-base); com ajuste, o ganho chegou a +12 pp.
+- **No TF-IDF, mais simples foi melhor.** Unigramas venceram bigramas e trigramas (trigramas custam de 1,6 a 2,4 pp), e **remover stopwords piorou** os modelos em 1,3 a 1,5 pp, em 5 de 5 folds: palavras como "por", "que" e "minha" ajudam a separar intenções parecidas, como `por_que_verificar_identidade` e `verificar_minha_identidade`. `min_df`, `sublinear_tf` e o balanceamento de classes mudaram o F1-macro em 0,3 pp ou menos.
+- **Os modelos de árvore não funcionaram bem com TF-IDF.** Random Forest e XGBoost ficaram abaixo do baseline, como esperado: as árvores dividem os dados uma palavra por vez e, com 77 classes, as folhas ficam com poucos exemplos.
+- **O `StandardScaler` não ajudou nos embeddings** (−1,65 pp na Regressão Logística com e5-large), e no SVM os kernels RBF, polinomial e linear ficaram a menos de 0,5 pp um do outro.
+- **A validação cruzada foi uma boa estimativa do teste.** O F1-macro do teste ficou um pouco acima do da validação cruzada em todos os modelos, e a ordem entre eles se manteve (só o Random Forest e o baseline trocam de posição).
 
 ## Estrutura
 
@@ -94,7 +115,8 @@ Os próximos modelos clássicos usam embeddings, que representam o significado d
 ├── data/
 │   ├── raw/             # dataset original (treino e teste do Hugging Face)
 │   ├── processed/       # df_01.csv (após a limpeza) e df_02.csv (após a análise exploratória)
-│   └── embeddings/      # embeddings gerados pelos notebooks (não versionados)
+│   ├── embeddings/      # embeddings gerados pelos notebooks (não versionados)
+│   └── buscas/          # cache das buscas de hiperparâmetros (não versionado)
 ├── notebooks/
 │   ├── 01_processamento.ipynb
 │   ├── 02_analise_exploratoria.ipynb
@@ -109,8 +131,13 @@ pip install -r requirements.txt
 jupyter lab
 ```
 
-Rode os notebooks em ordem, a partir da pasta `notebooks/`. Na primeira execução, o notebook de modelagem baixa os três modelos de embedding do Hugging Face (cerca de 4 GB) e salva os embeddings em `data/embeddings/`; nas execuções seguintes eles são carregados do disco.
+Rode os notebooks em ordem, a partir da pasta `notebooks/`. Na primeira execução, o notebook de modelagem:
+
+- baixa os três modelos de embedding do Hugging Face (cerca de 4 GB) e salva os embeddings em `data/embeddings/`;
+- roda as buscas de hiperparâmetros e salva cada uma em `data/buscas/`. Algumas levam horas (principalmente o SVM e o XGBoost); a busca do XGBoost salva o progresso a cada tentativa e pode ser interrompida e retomada.
+
+Nas execuções seguintes, embeddings e buscas são carregados do disco.
 
 ## Ferramentas
 
-Python, pandas, scikit-learn, NLTK, Matplotlib, Seaborn, sentence-transformers e APIs de LLMs.
+Python, pandas, scikit-learn, XGBoost, Optuna, NLTK, Matplotlib, Seaborn, sentence-transformers e APIs de LLMs.
